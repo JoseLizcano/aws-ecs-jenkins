@@ -6,6 +6,7 @@
       "Type": "AWS::EC2::AvailabilityZone::Name",
       "Description": "Availability Zone #1 - must be available in your account and in the same region as AvailabilityZone2"
     },
+
     "AvailabilityZone2": {
       "Type": "AWS::EC2::AvailabilityZone::Name",
       "Description": "Availability Zone #2 - must be available in your account and in the same region as AvailabilityZone1"
@@ -13,7 +14,7 @@
     "InstanceType": {
       "Type": "String",
       "Description": "EC2 instance type",
-      "Default": "t2.small",
+      "Default": "m4.large",
       "AllowedValues": [
         "t2.small",
         "t2.medium",
@@ -26,6 +27,10 @@
       ],
       "ConstraintDescription": "must be a general purpose (T2 or M4) EC2 instance type, equal to or larger than a \"t2.small\"."
     },
+    "EcsImageId": {
+      "Type": "AWS::EC2::Image::Id",
+      "Description": "ECS Image Id"
+    },
     "KeyPair": {
       "Type": "AWS::EC2::KeyPair::KeyName",
       "Description": "Key pair to log into EC2 instances"
@@ -34,34 +39,6 @@
       "Type": "String",
       "Description": "CIDR block that will have access to AWS resources. Use http://checkip.amazonaws.com/ to get your current IP Address.",
       "AllowedPattern": "\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+"
-    }
-  },
-  "Mappings": {
-    "RegionAmazonECSOptimizedAMIMapping": {
-      "us-east-1": {
-        "AMI": "ami-52cd5445"
-      },
-      "us-west-1": {
-        "AMI": "ami-efa1e28f"
-      },
-      "us-west-2": {
-        "AMI": "ami-a426edc4"
-      },
-      "eu-west-1": {
-        "AMI": "ami-7b244e08"
-      },
-      "eu-central-1": {
-        "AMI": "ami-721aec1d"
-      },
-      "ap-northeast-1": {
-        "AMI": "ami-058a4964"
-      },
-      "ap-southeast-1": {
-        "AMI": "ami-0d9f466e"
-      },
-      "ap-southeast-2": {
-        "AMI": "ami-7df2c61e"
-      }
     }
   },
   "Resources": {
@@ -267,12 +244,12 @@
         }
       },
       "Properties": {
-        "DesiredCapacity": 2,
+        "DesiredCapacity": 3,
         "LaunchConfigurationName": {
           "Ref": "ECSLaunchConfig"
         },
-        "MaxSize": 2,
-        "MinSize": 2,
+        "MaxSize": 3,
+        "MinSize": 3,
         "VPCZoneIdentifier": [
           {
             "Ref": "SubnetPublic1"
@@ -308,13 +285,7 @@
           "Ref": "ECSInstanceProfile"
         },
         "ImageId": {
-          "Fn::FindInMap": [
-            "RegionAmazonECSOptimizedAMIMapping",
-            {
-              "Ref": "AWS::Region"
-            },
-            "AMI"
-          ]
+          "Ref": "EcsImageId"
         },
         "InstanceType": {
           "Ref": "InstanceType"
@@ -592,6 +563,19 @@
             "PolicyDocument": {
               "Statement": [
                 {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:DescribeLogStreams"
+            ],
+            "Resource": [
+                "arn:aws:logs:*:*:*"
+            ]
+        },
+
+                {
                   "Effect": "Allow",
                   "Action": [
                     "ecs:CreateCluster",
@@ -622,10 +606,65 @@
                   "Action": [
                     "ecs:DescribeContainerInstances",
                     "ecs:ListClusters",
-                    "ecs:RegisterTaskDefinition"
+                    "ecs:RegisterTaskDefinition",
+                    "ecs:ListTaskDefinitions",
+                    "ecs:DescribeTaskDefinition"
                   ],
                   "Resource": "*"
                 },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:Describe*",
+                    "cloudformation:List*"
+                  ],
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "cloudformation:*"
+                  ],
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:aws:cloudformation:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":stack/ecs_jenkins*"
+                      ]
+                    ]
+                  }
+                },
+                {
+            "Sid": "PassRoleToEcsTask",
+            "Action": [
+                "iam:PassRole"
+            ],
+            "Effect": "Allow",
+            "Resource": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:aws:iam::",
+                  {
+                    "Ref": "AWS::AccountId"
+                  },
+                  ":role/",
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "*"
+                ]
+              ]
+            }
+        },
                 {
                   "Effect": "Allow",
                   "Action": [
@@ -643,7 +682,7 @@
                         {
                           "Ref": "AWS::AccountId"
                         },
-                        ":task-definition/jenkins-slave:*"
+                        ":task-definition/jenkins-slave*"
                       ]
                     ]
                   }
@@ -703,6 +742,92 @@
       },
       "Type": "AWS::IAM::Role"
     },
+    "CFRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "cloudformation.amazonaws.com"
+      },
+      "Action": ["sts:AssumeRole"]
+    }
+  ]
+        },
+        "Path": "/",
+        "Policies":  [
+          {"PolicyName": "ResourcesForCloudformation",
+            "PolicyDocument": {
+
+          "Statement": [
+            {
+            "Sid": "Stmt1500562934000",
+            "Effect": "Allow",
+            "Action": [
+                "elasticloadbalancing:*"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "Stmt1500562947000",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole",
+                "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:DeleteSecurityGroup",
+                "ec2:CreateSecurityGroup",
+                "ec2:Describe*",
+                "ec2:List*",
+                "ecs:CreateService",
+                "ecs:DeleteService",
+                "ecs:DeregisterContainerInstance",
+                "ecs:DeregisterTaskDefinition",
+                "ecs:DescribeClusters",
+                "ecs:DescribeContainerInstances",
+                "ecs:DescribeServices",
+                "ecs:DescribeTaskDefinition",
+                "ecs:DescribeTasks",
+                "ecs:DiscoverPollEndpoint",
+                "ecs:ListClusters",
+                "ecs:ListContainerInstances",
+                "ecs:ListServices",
+                "ecs:ListTaskDefinitionFamilies",
+                "ecs:ListTaskDefinitions",
+                "ecs:ListTasks",
+                "ecs:Poll",
+                "ecs:RegisterContainerInstance",
+                "ecs:RegisterTaskDefinition",
+                "ecs:RunTask",
+                "ecs:StartTask",
+                "ecs:StopTask",
+                "ecs:StartTelemetrySession",
+                "ecs:SubmitContainerStateChange",
+                "ecs:SubmitTaskStateChange",
+                "ecs:UpdateContainerAgent",
+                "ecs:UpdateService"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "Stmt1500562965000",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:*"
+            ],
+            "Resource": [
+                "*"
+            ]
+        }
+    ]}}]
+      },
+    "Type": "AWS::IAM::Role"
+  },
     "ECSServiceRole": {
       "Properties": {
         "AssumeRolePolicyDocument": {
@@ -733,7 +858,9 @@
                     "ec2:Describe*",
                     "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
                     "elasticloadbalancing:Describe*",
-                    "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+                    "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+                    "elasticloadbalancing:RegisterTargets",
+                    "elasticloadbalancing:DeregisterTargets"
                   ],
                   "Resource": "*"
                 }
@@ -742,6 +869,87 @@
           }
         ]
       },
+    "Type": "AWS::IAM::Role"
+  },
+      "DockerCloudFormationRole": {
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+          },
+          "Path": "/",
+          "Policies": [
+            {
+              "PolicyName": "AmazonEC2ContainerServiceRole",
+              "PolicyDocument": {
+                "Statement": [
+        {
+            "Sid": "Stmt1500495378000",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:*"
+            ],
+            "Resource": [
+                "*"
+            ]
+        },
+        {
+            "Sid": "passroletocf",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole"
+            ],
+            "Resource": {
+              "Fn::GetAtt": ["CFRole", "Arn"]
+            }
+        },
+        {
+            "Sid": "Stmt1500563646000",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:*"
+            ],
+            "Resource": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:aws:cloudformation:",
+                  {
+                    "Ref": "AWS::Region"
+                  },
+                  ":",
+                  {
+                    "Ref": "AWS::AccountId"
+                  },
+                  ":stack/jenkinsecs*"
+                ]
+              ]
+            }
+        },
+        {
+            "Sid": "describestacks",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:Describe*",
+                "cloudformation:List*"
+            ],
+            "Resource": [
+                "*"
+            ]
+        }
+    ]
+              }
+            }
+          ]
+        },
       "Type": "AWS::IAM::Role"
     },
     "JenkinsLoadBalancer": {
@@ -776,8 +984,8 @@
         ],
         "HealthCheck": {
           "HealthyThreshold": "2",
-          "Interval": "30",
-          "Target": "HTTP:8080/",
+          "Interval": "60",
+          "Target": "HTTP:8080/login",
           "Timeout": "5",
           "UnhealthyThreshold": "5"
         }
@@ -832,14 +1040,29 @@
         "HealthCheck": {
           "HealthyThreshold": "2",
           "Interval": "30",
-          "Target": "HTTP:80/",
+          "Target": "HTTP:80/login",
           "Timeout": "5",
           "UnhealthyThreshold": "5"
         }
       },
       "Type": "AWS::ElasticLoadBalancing::LoadBalancer"
     },
-    "JenkinsECSService": {
+    "JenkinsLogGroup": {
+      "Properties": {
+        "LogGroupName": "ecs-jenkins"
+      },
+      "Type": "AWS::Logs::LogGroup"
+    },
+    "JenkinsLogStreamPrefix": {
+      "Type": "AWS::Logs::LogStream",
+      "DependsOn": "JenkinsLogGroup",
+      "Properties": {
+        "LogGroupName": "ecs-jenkins",
+        "LogStreamName": "jenkins"
+      }
+    },
+    "Jenkins2ECSService": {
+      "DependsOn": "JenkinsLogStreamPrefix",
       "Properties": {
         "Cluster": {
           "Ref": "ECSCluster"
@@ -871,7 +1094,7 @@
             "Image": "jenkins/jenkins",
             "Hostname": "jenkins",
             "Cpu": 512,
-            "Memory": 512,
+            "Memory": 2048,
             "Environment": [
               {
                 "Name": "JAVA_OPTS",
@@ -885,6 +1108,16 @@
                 "SourceVolume": "efs-jenkins"
               }
             ],
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": "ecs-jenkins",
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "jenkins"
+              }
+            },
             "PortMappings": [
               {
                 "HostPort": 8080,
@@ -970,6 +1203,70 @@
     }
   },
   "Outputs": {
+    "ECSClusterSecurityGroup": {
+      "Description": "ECS Cluster Security Group",
+      "Value": {
+        "Ref": "ECSClusterSecurityGroup"
+      },
+      "Export": {
+        "Name": "ECSClusterSecurityGroup"
+      }
+    },
+
+    "PubSub1Id": {
+      "Description": "Public Subnet 1 Id",
+      "Value": {
+        "Ref": "SubnetPublic1"
+      },
+      "Export": {
+        "Name": "PubSub1Id"
+      }
+    },
+    "ECSServiceRole": {
+      "Description": "Service Role to attach Load balancers",
+      "Value": {
+        "Ref": "ECSServiceRole"
+      },
+      "Export": {
+        "Name": "ECSServiceRole"
+      }
+    },
+    "CFRoleARN": {
+      "Description": "ARN for CF deployment role",
+      "Value": {
+        "Fn::GetAtt": ["CFRole", "Arn"]
+      },
+      "Export": {
+        "Name": "CFRoleARN"
+      }
+    },
+    "DockerCloudFormationARN": {
+      "Description": "ARN for CF deployment role",
+      "Value": {
+        "Fn::GetAtt": ["DockerCloudFormationRole", "Arn"]
+      },
+      "Export": {
+        "Name": "DockerCloudFormationARN"
+      }
+    },
+    "VPCId": {
+      "Description": "VPCId",
+      "Value": {
+        "Ref": "VPC"
+      },
+      "Export": {
+        "Name": "VPCId"
+      }
+    },
+    "PubSub2Id": {
+      "Description": "Public Subnet 2 Id",
+      "Value": {
+        "Ref": "SubnetPublic2"
+      },
+      "Export": {
+        "Name": "PubSub2Id"
+      }
+    },
     "JenkinsConfigurationAlternativeJenkinsURL": {
       "Description": "Jenkins configuration: \"Alternative Jenkins URL\"",
       "Value": {
@@ -990,6 +1287,9 @@
     },
     "JenkinsConfigurationECSCluster": {
       "Description": "Jenkins configuration: \"ECS Cluster\"",
+      "Export" : {
+      "Name" : "ECSClusterName"
+    },
       "Value": {
         "Fn::Join": [
           "",
