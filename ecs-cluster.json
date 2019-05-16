@@ -27,10 +27,6 @@
       ],
       "ConstraintDescription": "must be a general purpose (T2 or M4) EC2 instance type, equal to or larger than a \"t2.small\"."
     },
-    "EcsImageId": {
-      "Type": "AWS::EC2::Image::Id",
-      "Description": "ECS Image Id"
-    },
     "KeyPair": {
       "Type": "AWS::EC2::KeyPair::KeyName",
       "Description": "Key pair to log into EC2 instances"
@@ -39,6 +35,34 @@
       "Type": "String",
       "Description": "CIDR block that will have access to AWS resources. Use http://checkip.amazonaws.com/ to get your current IP Address.",
       "AllowedPattern": "\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+"
+    }
+  },
+  "Mappings": {
+    "RegionAmazonECSOptimizedAMIMapping": {
+      "us-east-1": {
+        "AMI": "ami-52cd5445"
+      },
+      "us-west-1": {
+        "AMI": "ami-efa1e28f"
+      },
+      "us-west-2": {
+        "AMI": "ami-a426edc4"
+      },
+      "eu-west-1": {
+        "AMI": "ami-7b244e08"
+      },
+      "eu-central-1": {
+        "AMI": "ami-721aec1d"
+      },
+      "ap-northeast-1": {
+        "AMI": "ami-058a4964"
+      },
+      "ap-southeast-1": {
+        "AMI": "ami-0d9f466e"
+      },
+      "ap-southeast-2": {
+        "AMI": "ami-7df2c61e"
+      }
     }
   },
   "Resources": {
@@ -244,12 +268,12 @@
         }
       },
       "Properties": {
-        "DesiredCapacity": 3,
+        "DesiredCapacity": 2,
         "LaunchConfigurationName": {
           "Ref": "ECSLaunchConfig"
         },
-        "MaxSize": 3,
-        "MinSize": 3,
+        "MaxSize": 2,
+        "MinSize": 2,
         "VPCZoneIdentifier": [
           {
             "Ref": "SubnetPublic1"
@@ -285,7 +309,13 @@
           "Ref": "ECSInstanceProfile"
         },
         "ImageId": {
-          "Ref": "EcsImageId"
+          "Fn::FindInMap": [
+            "RegionAmazonECSOptimizedAMIMapping",
+            {
+              "Ref": "AWS::Region"
+            },
+            "AMI"
+          ]
         },
         "InstanceType": {
           "Ref": "InstanceType"
@@ -985,7 +1015,7 @@
         "HealthCheck": {
           "HealthyThreshold": "2",
           "Interval": "60",
-          "Target": "HTTP:8080/login",
+          "Target": "HTTP:8080/",
           "Timeout": "5",
           "UnhealthyThreshold": "5"
         }
@@ -1040,7 +1070,7 @@
         "HealthCheck": {
           "HealthyThreshold": "2",
           "Interval": "30",
-          "Target": "HTTP:80/login",
+          "Target": "HTTP:80/",
           "Timeout": "5",
           "UnhealthyThreshold": "5"
         }
